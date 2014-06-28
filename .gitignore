@@ -1,3 +1,11 @@
+*html
+*html.1
+redis-benchmark
+redis-check-aof
+redis-check-dump
+redis-cli
+redis-server
+*~
 # Object files
 *.o
 *.ko
