@@ -6,6 +6,7 @@ redis-check-dump
 redis-cli
 redis-server
 *~
+runtest*
 # Object files
 *.o
 *.ko

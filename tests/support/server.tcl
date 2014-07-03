@@ -1,13 +1,15 @@
 set ::global_overrides {}
 set ::tags {}
+set ::valgrind_errors {}
 
-proc error_and_quit {config_file error} {
-    puts "!!COULD NOT START REDIS-SERVER\n"
-    puts "CONFIGURATION:"
-    puts [exec cat $config_file]
-    puts "\nERROR:"
-    puts [string trim $error]
-    exit 1
+proc start_server_error {config_file error} {
+    set err {}
+    append err "Cant' start the Redis server\n"
+    append err "CONFIGURATION:"
+    append err [exec cat $config_file]
+    append err "\nERROR:"
+    append err [string trim $error]
+    send_data_packet $::test_server_fd err $err
 }
 
 proc check_valgrind_errors stderr {
@@ -15,16 +17,17 @@ proc check_valgrind_errors stderr {
     set buf [read $fd]
     close $fd
 
-    if {![regexp -- {ERROR SUMMARY: 0 errors} $buf] ||
-        ![regexp -- {definitely lost: 0 bytes} $buf]} {
-        puts "*** VALGRIND ERRORS ***"
-        puts $buf
-        puts "--- press enter to continue ---"
-        gets stdin
+    if {[regexp -- { at 0x} $buf] ||
+        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
     }
 }
 
 proc kill_server config {
+    # nothing to kill when running against external server
+    if {$::external} return
+
     # nevermind if its already dead
     if {![is_alive $config]} { return }
     set pid [dict get $config pid]
@@ -35,7 +38,13 @@ proc kill_server config {
             if {[string match {*Darwin*} [exec uname -a]]} {
                 tags {"leaks"} {
                     test "Check for memory leaks (pid $pid)" {
-                        exec leaks $pid
+                        set output {0 leaks}
+                        catch {exec leaks $pid} output
+                        if {[string match {*process does not exist*} $output]} {
+                            # In a few tests we kill the server process.
+                            set output "0 leaks"
+                        }
+                        set output
                     } {*0 leaks*}
                 }
             }
@@ -43,11 +52,16 @@ proc kill_server config {
     }
 
     # kill server and wait for the process to be totally exited
+    catch {exec kill $pid}
     while {[is_alive $config]} {
-        if {[incr wait 10] % 1000 == 0} {
+        incr wait 10
+
+        if {$wait >= 5000} {
+            puts "Forcing process $pid to exit..."
+            catch {exec kill -KILL $pid}
+        } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
         }
-        catch {exec kill $pid}
         after 10
     }
 
@@ -69,20 +83,42 @@ proc is_alive config {
 proc ping_server {host port} {
     set retval 0
     if {[catch {
-        set fd [socket $::host $::port]
+        set fd [socket $host $port]
         fconfigure $fd -translation binary
         puts $fd "PING\r\n"
         flush $fd
         set reply [gets $fd]
-        if {[string range $reply 0 4] eq {+PONG} ||
-            [string range $reply 0 3] eq {-ERR}} {
+        if {[string range $reply 0 0] eq {+} ||
+            [string range $reply 0 0] eq {-}} {
             set retval 1
         }
         close $fd
     } e]} {
-        puts "Can't PING server at $host:$port... $e"
+        if {$::verbose} {
+            puts -nonewline "."
+        }
+    } else {
+        if {$::verbose} {
+            puts -nonewline "ok"
+        }
     }
     return $retval
+}
+
+# Return 1 if the server at the specified addr is reachable by PING, otherwise
+# returns 0. Performs a try every 50 milliseconds for the specified number
+# of retries.
+proc server_is_up {host port retrynum} {
+    after 10 ;# Use a small delay to make likely a first-try success.
+    set retval 0
+    while {[incr retrynum -1]} {
+        if {[catch {ping_server $host $port} ping]} {
+            set ping 0
+        }
+        if {$ping} {return 1}
+        after 50
+    }
+    return 0
 }
 
 # doesn't really belong here, but highly coupled to code in start_server
@@ -93,6 +129,24 @@ proc tags {tags code} {
 }
 
 proc start_server {options {code undefined}} {
+    # If we are running against an external server, we just push the
+    # host/port pair in the stack the first time
+    if {$::external} {
+        if {[llength $::servers] == 0} {
+            set srv {}
+            dict set srv "host" $::host
+            dict set srv "port" $::port
+            set client [redis $::host $::port]
+            dict set srv "client" $client
+            $client select 9
+
+            # append the server to the stack
+            lappend ::servers $srv
+        }
+        uplevel 1 $code
+        return
+    }
+
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
@@ -128,7 +182,8 @@ proc start_server {options {code undefined}} {
     dict set config dir [tmpdir server]
     
     # start every server on a different port
-    dict set config port [incr ::port]
+    set ::port [find_available_port [expr {$::port+1}]]
+    dict set config port $::port
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
@@ -148,21 +203,39 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind ./redis-server $config_file > $stdout 2> $stderr &
-        after 2000
+        exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &
     } else {
-        exec ./redis-server $config_file > $stdout 2> $stderr &
-        after 500
+        exec src/redis-server $config_file > $stdout 2> $stderr &
     }
     
     # check that the server actually started
-    if {$code ne "undefined" && ![ping_server $::host $::port]} {
-        error_and_quit $config_file [exec cat $stderr]
+    # ugly but tries to be as fast as possible...
+    if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
+
+    if {$::verbose} {
+        puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
+    }
+
+    if {$code ne "undefined"} {
+        set serverisup [server_is_up $::host $::port $retrynum]
+    } else {
+        set serverisup 1
+    }
+
+    if {$::verbose} {
+        puts ""
+    }
+
+    if {!$serverisup} {
+        set err {}
+        append err [exec cat $stdout] "\n" [exec cat $stderr]
+        start_server_error $config_file $err
+        return
     }
     
     # find out the pid
     while {![info exists pid]} {
-        regexp {^\[(\d+)\]} [exec head -n1 $stdout] _ pid
+        regexp {\[(\d+)\]} [exec cat $stdout] _ pid
         after 100
     }
 
@@ -173,7 +246,8 @@ proc start_server {options {code undefined}} {
     if {[dict exists $config port]} { set port [dict get $config port] }
 
     # setup config dict
-    dict set srv "config" $config_file
+    dict set srv "config_file" $config_file
+    dict set srv "config" $config
     dict set srv "pid" $pid
     dict set srv "host" $host
     dict set srv "port" $port
@@ -190,53 +264,47 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec cat $stdout | grep "ready to accept" | wc -l] > 0} {
+            if {[exec grep "ready to accept" | wc -l < $stdout] > 0} {
                 break
             }
             after 10
         }
 
-        set client [redis $host $port]
-        dict set srv "client" $client
-
-        # select the right db when we don't have to authenticate
-        if {![dict exists $config requirepass]} {
-            $client select 9
-        }
-
         # append the server to the stack
         lappend ::servers $srv
-        
-        # execute provided block
-        set curnum $::testnum
-        catch { uplevel 1 $code } err
-        if {$curnum == $::testnum} {
-            # don't check for leaks when no tests were executed
-            dict set srv "skipleaks" 1
-        }
 
-        # pop the server object
-        set ::servers [lrange $::servers 0 end-1]
-        
-        # allow an exception to bubble up the call chain but still kill this
-        # server, because we want to reuse the ports when the tests are re-run
-        if {$err eq "exception"} {
-            puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
+        # connect client (after server dict is put on the stack)
+        reconnect
+
+        # execute provided block
+        set num_tests $::num_tests
+        if {[catch { uplevel 1 $code } error]} {
+            set backtrace $::errorInfo
+
+            # Kill the server without checking for leaks
+            dict set srv "skipleaks" 1
+            kill_server $srv
+
+            # Print warnings from log
+            puts [format "\nLogged warnings (pid %d):" [dict get $srv "pid"]]
             set warnings [warnings_from_file [dict get $srv "stdout"]]
             if {[string length $warnings] > 0} {
                 puts "$warnings"
             } else {
                 puts "(none)"
             }
-            # kill this server without checking for leaks
-            dict set srv "skipleaks" 1
-            kill_server $srv
-            error "exception"
-        } elseif {[string length $err] > 0} {
-            puts "Error executing the suite, aborting..."
-            puts $err
-            exit 1
+            puts ""
+
+            error $error $backtrace
         }
+
+        # Don't do the leak check when no tests were run
+        if {$num_tests == $::num_tests} {
+            dict set srv "skipleaks" 1
+        }
+
+        # pop the server object
+        set ::servers [lrange $::servers 0 end-1]
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         kill_server $srv

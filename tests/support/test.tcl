@@ -1,18 +1,27 @@
-set ::passed 0
-set ::failed 0
-set ::testnum 0
+set ::num_tests 0
+set ::num_passed 0
+set ::num_failed 0
+set ::tests_failed {}
+
+proc fail {msg} {
+    error "assertion:$msg"
+}
+
+proc assert {condition} {
+    if {![uplevel 1 [list expr $condition]]} {
+        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
+    }
+}
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        puts "!! ERROR\nExpected '$value' to match '$pattern'"
-        error "assertion"
+        error "assertion:Expected '$value' to match '$pattern'"
     }
 }
 
 proc assert_equal {expected value} {
     if {$expected ne $value} {
-        puts "!! ERROR\nExpected '$value' to be equal to '$expected'"
-        error "assertion"
+        error "assertion:Expected '$value' to be equal to '$expected'"
     }
 }
 
@@ -20,20 +29,45 @@ proc assert_error {pattern code} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        puts "!! ERROR\nExpected an error but nothing was catched"
-        error "assertion"
+        error "assertion:Expected an error but nothing was catched"
     }
 }
 
 proc assert_encoding {enc key} {
-    assert_match "* encoding:$enc *" [r debug object $key]
+    # Swapped out values don't have an encoding, so make sure that
+    # the value is swapped in before checking the encoding.
+    set dbg [r debug object $key]
+    while {[string match "* swapped at:*" $dbg]} {
+        r debug swapin $key
+        set dbg [r debug object $key]
+    }
+    assert_match "* encoding:$enc *" $dbg
 }
 
 proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
-proc test {name code {okpattern notspecified}} {
+# Wait for the specified condition to be true, with the specified number of
+# max retries and delay between retries. Otherwise the 'elsescript' is
+# executed.
+proc wait_for_condition {maxtries delay e _else_ elsescript} {
+    while {[incr maxtries -1] >= 0} {
+        set errcode [catch {uplevel 1 [list expr $e]} result]
+        if {$errcode == 0} {
+            if {$result} break
+        } else {
+            return -code $errcode $result
+        }
+        after $delay
+    }
+    if {$maxtries == -1} {
+        set errcode [catch [uplevel 1 $elsescript] result]
+        return -code $errcode $result
+    }
+}
+
+proc test {name code {okpattern undefined}} {
     # abort if tagged with a tag to deny
     foreach tag $::denytags {
         if {[lsearch $::tags $tag] >= 0} {
@@ -55,30 +89,42 @@ proc test {name code {okpattern notspecified}} {
         }
     }
 
-    incr ::testnum
-    puts -nonewline [format "#%03d %-68s " $::testnum $name]
-    flush stdout
+    incr ::num_tests
+    set details {}
+    lappend details "$name in $::curfile"
+
+    send_data_packet $::test_server_fd testing $name
+
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        if {$error eq "assertion"} {
-            incr ::failed
+        if {[string match "assertion:*" $error]} {
+            set msg [string range $error 10 end]
+            lappend details $msg
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            send_data_packet $::test_server_fd err [join $details "\n"]
         } else {
-            puts "EXCEPTION"
-            puts "\nCaught error: $error"
-            error "exception"
+            # Re-raise, let handler up the stack take care of this.
+            error $error $::errorInfo
         }
     } else {
-        if {$okpattern eq "notspecified" || $okpattern eq $retval || [string match $okpattern $retval]} {
-            puts "PASSED"
-            incr ::passed
+        if {$okpattern eq "undefined" || $okpattern eq $retval || [string match $okpattern $retval]} {
+            incr ::num_passed
+            send_data_packet $::test_server_fd ok $name
         } else {
-            puts "!! ERROR expected\n'$okpattern'\nbut got\n'$retval'"
-            incr ::failed
+            set msg "Expected '$okpattern' to equal or match '$retval'"
+            lappend details $msg
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            send_data_packet $::test_server_fd err [join $details "\n"]
         }
     }
+
     if {$::traceleaks} {
-        if {![string match {*0 leaks*} [exec leaks redis-server]]} {
-            puts "--------- Test $::testnum LEAKED! --------"
-            exit 1
+        set output [exec leaks redis-server]
+        if {![string match {*0 leaks*} $output]} {
+            send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
 }

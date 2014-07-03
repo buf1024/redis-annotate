@@ -30,12 +30,16 @@ proc zlistAlikeSort {a b} {
 proc warnings_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
+    set logall 0
     set result {}
     foreach line $lines {
+        if {[string match {*REDIS BUG REPORT START*} $line]} {
+            set logall 1
+        }
         if {[regexp {^\[\d+\]\s+\d+\s+\w+\s+\d{2}:\d{2}:\d{2} \#} $line]} {
             set matched 1
         }
-        if {$matched} {
+        if {$logall || $matched} {
             lappend result $line
         }
     }
@@ -44,16 +48,18 @@ proc warnings_from_file {filename} {
 
 # Return value for INFO property
 proc status {r property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" [$r info] _ value]} {
+    if {[regexp "\r\n$property:(.*?)\r\n" [{*}$r info] _ value]} {
         set _ $value
     }
 }
 
 proc waitForBgsave r {
     while 1 {
-        if {[status r bgsave_in_progress] eq 1} {
-            puts -nonewline "\nWaiting for background save to finish... "
-            flush stdout
+        if {[status r rdb_bgsave_in_progress] eq 1} {
+            if {$::verbose} {
+                puts -nonewline "\nWaiting for background save to finish... "
+                flush stdout
+            }
             after 1000
         } else {
             break
@@ -63,9 +69,11 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status r bgrewriteaof_in_progress] eq 1} {
-            puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-            flush stdout
+        if {[status r aof_rewrite_in_progress] eq 1} {
+            if {$::verbose} {
+                puts -nonewline "\nWaiting for background AOF rewrite to finish... "
+                flush stdout
+            }
             after 1000
         } else {
             break
@@ -75,7 +83,7 @@ proc waitForBgrewriteaof r {
 
 proc wait_for_sync r {
     while 1 {
-        if {[status r master_link_status] eq "down"} {
+        if {[status $r master_link_status] eq "down"} {
             after 10
         } else {
             break
@@ -83,8 +91,18 @@ proc wait_for_sync r {
     }
 }
 
+# Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
+}
+
+# Random signed integer between -max and max (both extremes excluded).
+proc randomSignedInt {max} {
+    set i [randomInt $max]
+    if {rand() > 0.5} {
+        set i -$i
+    }
+    return $i
 }
 
 proc randpath args {
@@ -95,13 +113,13 @@ proc randpath args {
 proc randomValue {} {
     randpath {
         # Small enough to likely collide
-        randomInt 1000
+        randomSignedInt 1000
     } {
         # 32 bit compressible signed/unsigned
-        randpath {randomInt 2000000000} {randomInt 4000000000}
+        randpath {randomSignedInt 2000000000} {randomSignedInt 4000000000}
     } {
         # 64 bit
-        randpath {randomInt 1000000000000}
+        randpath {randomSignedInt 1000000000000}
     } {
         # Random string
         randpath {randstring 0 256 alpha} \
@@ -127,11 +145,32 @@ proc randomKey {} {
     }
 }
 
-proc createComplexDataset {r ops} {
+proc findKeyWithType {r type} {
+    for {set j 0} {$j < 20} {incr j} {
+        set k [{*}$r randomkey]
+        if {$k eq {}} {
+            return {}
+        }
+        if {[{*}$r type $k] eq $type} {
+            return $k
+        }
+    }
+    return {}
+}
+
+proc createComplexDataset {r ops {opt {}}} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
+        set k2 [randomKey]
         set f [randomValue]
         set v [randomValue]
+
+        if {[lsearch -exact $opt useexpire] != -1} {
+            if {rand() < 0.1} {
+                {*}$r expire [randomKey] [randomInt 2]
+            }
+        }
+
         randpath {
             set d [expr {rand()}]
         } {
@@ -145,21 +184,23 @@ proc createComplexDataset {r ops} {
         } {
             randpath {set d +inf} {set d -inf}
         }
-        set t [$r type $k]
+        set t [{*}$r type $k]
 
         if {$t eq {none}} {
             randpath {
-                $r set $k $v
+                {*}$r set $k $v
             } {
-                $r lpush $k $v
+                {*}$r lpush $k $v
             } {
-                $r sadd $k $v
+                {*}$r sadd $k $v
             } {
-                $r zadd $k $d $v
+                {*}$r zadd $k $d $v
             } {
-                $r hset $k $f $v
+                {*}$r hset $k $f $v
+            } {
+                {*}$r del $k
             }
-            set t [$r type $k]
+            set t [{*}$r type $k]
         }
 
         switch $t {
@@ -167,23 +208,45 @@ proc createComplexDataset {r ops} {
                 # Nothing to do
             }
             {list} {
-                randpath {$r lpush $k $v} \
-                        {$r rpush $k $v} \
-                        {$r lrem $k 0 $v} \
-                        {$r rpop $k} \
-                        {$r lpop $k}
+                randpath {{*}$r lpush $k $v} \
+                        {{*}$r rpush $k $v} \
+                        {{*}$r lrem $k 0 $v} \
+                        {{*}$r rpop $k} \
+                        {{*}$r lpop $k}
             }
             {set} {
-                randpath {$r sadd $k $v} \
-                        {$r srem $k $v}
+                randpath {{*}$r sadd $k $v} \
+                        {{*}$r srem $k $v} \
+                        {
+                            set otherset [findKeyWithType {*}$r set]
+                            if {$otherset ne {}} {
+                                randpath {
+                                    {*}$r sunionstore $k2 $k $otherset
+                                } {
+                                    {*}$r sinterstore $k2 $k $otherset
+                                } {
+                                    {*}$r sdiffstore $k2 $k $otherset
+                                }
+                            }
+                        }
             }
             {zset} {
-                randpath {$r zadd $k $d $v} \
-                        {$r zrem $k $v}
+                randpath {{*}$r zadd $k $d $v} \
+                        {{*}$r zrem $k $v} \
+                        {
+                            set otherzset [findKeyWithType {*}$r zset]
+                            if {$otherzset ne {}} {
+                                randpath {
+                                    {*}$r zunionstore $k2 2 $k $otherzset
+                                } {
+                                    {*}$r zinterstore $k2 2 $k $otherzset
+                                }
+                            }
+                        }
             }
             {hash} {
-                randpath {$r hset $k $f $v} \
-                        {$r hdel $k $f}
+                randpath {{*}$r hset $k $f $v} \
+                        {{*}$r hdel $k $f}
             }
         }
     }
@@ -195,4 +258,102 @@ proc formatCommand {args} {
         append cmd "$[string length $a]\r\n$a\r\n"
     }
     set _ $cmd
+}
+
+proc csvdump r {
+    set o {}
+    foreach k [lsort [{*}$r keys *]] {
+        set type [{*}$r type $k]
+        append o [csvstring $k] , [csvstring $type] ,
+        switch $type {
+            string {
+                append o [csvstring [{*}$r get $k]] "\n"
+            }
+            list {
+                foreach e [{*}$r lrange $k 0 -1] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            set {
+                foreach e [lsort [{*}$r smembers $k]] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            zset {
+                foreach e [{*}$r zrange $k 0 -1 withscores] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            hash {
+                set fields [{*}$r hgetall $k]
+                set newfields {}
+                foreach {k v} $fields {
+                    lappend newfields [list $k $v]
+                }
+                set fields [lsort -index 0 $newfields]
+                foreach kv $fields {
+                    append o [csvstring [lindex $kv 0]] ,
+                    append o [csvstring [lindex $kv 1]] ,
+                }
+                append o "\n"
+            }
+        }
+    }
+    return $o
+}
+
+proc csvstring s {
+    return "\"$s\""
+}
+
+proc roundFloat f {
+    format "%.10g" $f
+}
+
+proc find_available_port start {
+    for {set j $start} {$j < $start+1024} {incr j} {
+        if {[catch {
+            set fd [socket 127.0.0.1 $j]
+        }]} {
+            return $j
+        } else {
+            close $fd
+        }
+    }
+    if {$j == $start+1024} {
+        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
+    }
+}
+
+# Test if TERM looks like to support colors
+proc color_term {} {
+    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
+}
+
+proc colorstr {color str} {
+    if {[color_term]} {
+        set b 0
+        if {[string range $color 0 4] eq {bold-}} {
+            set b 1
+            set color [string range $color 5 end]
+        }
+        switch $color {
+            red {set colorcode {31}}
+            green {set colorcode {32}}
+            yellow {set colorcode {33}}
+            blue {set colorcode {34}}
+            magenta {set colorcode {35}}
+            cyan {set colorcode {36}}
+            white {set colorcode {37}}
+            default {set colorcode {37}}
+        }
+        if {$colorcode ne {}} {
+            return "\033\[$b;${colorcode};40m$str\033\[0m"
+        }
+    } else {
+        return $str
+    }
 }

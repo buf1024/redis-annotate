@@ -1,70 +1,25 @@
-# redis-sha1.rb - Copyright (C) 2009 Salvatore Sanfilippo
+# redis-copy.rb - Copyright (C) 2009-2010 Salvatore Sanfilippo
 # BSD license, See the COPYING file for more information.
 #
-# Performs the SHA1 sum of the whole datset.
-# This is useful to spot bugs in persistence related code and to make sure
-# Slaves and Masters are in SYNC.
+# Copy the whole dataset from one Redis instance to another one
 #
-# If you hack this code make sure to sort keys and set elements as this are
-# unsorted elements. Otherwise the sum may differ with equal dataset.
+# WARNING: this utility is deprecated and serves as a legacy adapter
+#          for the more-robust redis-copy gem.
 
-require 'rubygems'
-require 'redis'
-require 'digest/sha1'
+require 'shellwords'
 
 def redisCopy(opts={})
-    sha1=""
-    src = Redis.new(:host => opts[:srchost], :port => opts[:srcport])
-    dst = Redis.new(:host => opts[:dsthost], :port => opts[:dstport])
-    puts "Loading key names..."
-    keys = src.keys('*')
-    puts "Copying #{keys.length} keys..."
-    c = 0
-    keys.each{|k|
-        vtype = src.type?(k)
-        ttl = src.ttl(k).to_i if vtype != "none"
-
-        if vtype == "string"
-            dst[k] = src[k]
-        elsif vtype == "list"
-            list = src.lrange(k,0,-1)
-            if list.length == 0
-                # Empty list special case
-                dst.lpush(k,"")
-                dst.lpop(k)
-            else
-                list.each{|ele|
-                    dst.rpush(k,ele)
-                }
-            end
-        elsif vtype == "set"
-            set = src.smembers(k)
-            if set.length == 0
-                # Empty set special case
-                dst.sadd(k,"")
-                dst.srem(k,"")
-            else
-                set.each{|ele|
-                    dst.sadd(k,ele)
-                }
-            end
-        elsif vtype == "none"
-            puts "WARNING: key '#{k}' was removed in the meanwhile."
-        end
-
-        # Handle keys with an expire time set
-        if ttl != -1 and vtype != "none"
-            dst.expire(k,ttl)
-        end
-
-        c = c+1
-        if (c % 1000) == 0
-            puts "#{c}/#{keys.length} completed"
-        end
-    }
-    puts "DONE!"
+  src = "#{opts[:srchost]}:#{opts[:srcport]}"
+  dst = "#{opts[:dsthost]}:#{opts[:dstport]}"
+  `redis-copy #{src.shellescape} #{dst.shellescape}`
+rescue Errno::ENOENT
+  $stderr.puts 'This utility requires the redis-copy executable',
+               'from the redis-copy gem on https://rubygems.org',
+               'To install it, run `gem install redis-copy`.'
+  exit 1
 end
 
+$stderr.puts "This utility is deprecated. Use the redis-copy gem instead."
 if ARGV.length != 4
     puts "Usage: redis-copy.rb <srchost> <srcport> <dsthost> <dstport>"
     exit 1

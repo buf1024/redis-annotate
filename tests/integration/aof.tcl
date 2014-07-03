@@ -31,13 +31,21 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test {Unfinished MULTI: Server should not have been started} {
-            is_alive $srv
-        } {0}
-
-        test {Unfinished MULTI: Server should have logged an error} {
-            exec cat [dict get $srv stdout] | tail -n1
-        } {*Unexpected end of file reading the append only file*}
+        test "Unfinished MULTI: Server should have logged an error" {
+            set pattern "*Unexpected end of file reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec tail -n1 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
+        }
     }
 
     ## Test that the server exits when the AOF contains a short read
@@ -47,36 +55,89 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test {Short read: Server should not have been started} {
-            is_alive $srv
-        } {0}
-
-        test {Short read: Server should have logged an error} {
-            exec cat [dict get $srv stdout] | tail -n1
-        } {*Bad file format reading the append only file*}
+        test "Short read: Server should have logged an error" {
+            set pattern "*Bad file format reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec tail -n1 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
+        }
     }
 
     ## Test that redis-check-aof indeed sees this AOF is not valid
-    test {Short read: Utility should confirm the AOF is not valid} {
+    test "Short read: Utility should confirm the AOF is not valid" {
         catch {
-            exec ./redis-check-aof $aof_path
-        } str
-        set _ $str
-    } {*not valid*}
+            exec src/redis-check-aof $aof_path
+        } result
+        assert_match "*not valid*" $result
+    }
 
-    test {Short read: Utility should be able to fix the AOF} {
-        exec echo y | ./redis-check-aof --fix $aof_path
-    } {*Successfully truncated AOF*}
+    test "Short read: Utility should be able to fix the AOF" {
+        set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
+        assert_match "*Successfully truncated AOF*" $result
+    }
 
     ## Test that the server can be started using the truncated AOF
     start_server_aof [list dir $server_path] {
-        test {Fixed AOF: Server should have been started} {
-            is_alive $srv
-        } {1}
+        test "Fixed AOF: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
 
-        test {Fixed AOF: Keyspace should contain values that were parsable} {
+        test "Fixed AOF: Keyspace should contain values that were parsable" {
             set client [redis [dict get $srv host] [dict get $srv port]]
-            list [$client get foo] [$client get bar]
-        } {hello {}}
+            assert_equal "hello" [$client get foo]
+            assert_equal "" [$client get bar]
+        }
+    }
+
+    ## Test that SPOP (that modifies the client's argc/argv) is correctly free'd
+    create_aof {
+        append_to_aof [formatCommand sadd set foo]
+        append_to_aof [formatCommand sadd set bar]
+        append_to_aof [formatCommand spop set]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF+SPOP: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        test "AOF+SPOP: Set should have 1 member" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal 1 [$client scard set]
+        }
+    }
+
+    ## Test that EXPIREAT is loaded correctly
+    create_aof {
+        append_to_aof [formatCommand rpush list foo]
+        append_to_aof [formatCommand expireat list 1000]
+        append_to_aof [formatCommand rpush list bar]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF+EXPIRE: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        test "AOF+EXPIRE: List should be empty" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal 0 [$client llen list]
+        }
+    }
+
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+        test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
+            r set x 10
+            r expire x -1
+        }
     }
 }

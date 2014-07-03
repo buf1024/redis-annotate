@@ -1,4 +1,11 @@
-start_server {} {
+start_server {tags {"other"}} {
+    if {$::force_failure} {
+        # This is used just for test suite development purposes.
+        test {Failing test} {
+            format err
+        } {ok}
+    }
+
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -12,11 +19,12 @@ start_server {} {
         r save
     } {OK}
 
-    tags {"slow"} {
+    tags {slow} {
+        if {$::accurate} {set iterations 10000} else {set iterations 1000}
         foreach fuzztype {binary alpha compr} {
             test "FUZZ stresser with data model $fuzztype" {
                 set err 0
-                for {set i 0} {$i < 10000} {incr i} {
+                for {set i 0} {$i < $iterations} {incr i} {
                     set fuzz [randstring 0 512 $fuzztype]
                     r set foo $fuzz
                     set got [r get foo]
@@ -46,26 +54,60 @@ start_server {} {
         set _ $err
     } {*invalid*}
 
-    if {![catch {package require sha1}]} {
-        test {Check consistency of different data types after a reload} {
-            r flushdb
-            createComplexDataset r 10000
-            set sha1 [r debug digest]
-            r debug reload
-            set sha1_after [r debug digest]
-            expr {$sha1 eq $sha1_after}
-        } {1}
+    tags {consistency} {
+        if {![catch {package require sha1}]} {
+            if {$::accurate} {set numops 10000} else {set numops 1000}
+            test {Check consistency of different data types after a reload} {
+                r flushdb
+                createComplexDataset r $numops
+                set dump [csvdump r]
+                set sha1 [r debug digest]
+                r debug reload
+                set sha1_after [r debug digest]
+                if {$sha1 eq $sha1_after} {
+                    set _ 1
+                } else {
+                    set newdump [csvdump r]
+                    puts "Consistency test failed!"
+                    puts "You can inspect the two dumps in /tmp/repldump*.txt"
 
-        test {Same dataset digest if saving/reloading as AOF?} {
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-            set sha1_after [r debug digest]
-            expr {$sha1 eq $sha1_after}
-        } {1}
+                    set fd [open /tmp/repldump1.txt w]
+                    puts $fd $dump
+                    close $fd
+                    set fd [open /tmp/repldump2.txt w]
+                    puts $fd $newdump
+                    close $fd
+
+                    set _ 0
+                }
+            } {1}
+
+            test {Same dataset digest if saving/reloading as AOF?} {
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                r debug loadaof
+                set sha1_after [r debug digest]
+                if {$sha1 eq $sha1_after} {
+                    set _ 1
+                } else {
+                    set newdump [csvdump r]
+                    puts "Consistency test failed!"
+                    puts "You can inspect the two dumps in /tmp/aofdump*.txt"
+
+                    set fd [open /tmp/aofdump1.txt w]
+                    puts $fd $dump
+                    close $fd
+                    set fd [open /tmp/aofdump2.txt w]
+                    puts $fd $newdump
+                    close $fd
+
+                    set _ 0
+                }
+            } {1}
+        }
     }
 
-    test {EXPIRES after a reload (snapshot + append only file)} {
+    test {EXPIRES after a reload (snapshot + append only file rewrite)} {
         r flushdb
         r set x 10
         r expire x 1000
@@ -75,63 +117,81 @@ start_server {} {
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
         r bgrewriteaof
         waitForBgrewriteaof r
+        r debug loadaof
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
     } {1 1}
 
-    test {PIPELINING stresser (also a regression for the old epoll bug)} {
-        set fd2 [socket $::host $::port]
-        fconfigure $fd2 -encoding binary -translation binary
-        puts -nonewline $fd2 "SELECT 9\r\n"
-        flush $fd2
-        gets $fd2
+    test {EXPIRES after AOF reload (without rewrite)} {
+        r flushdb
+        r config set appendonly yes
+        r set x somevalue
+        r expire x 1000
+        r setex y 2000 somevalue
+        r set z somevalue
+        r expireat z [expr {[clock seconds]+3000}]
 
-        for {set i 0} {$i < 100000} {incr i} {
-            set q {}
-            set val "0000${i}0000"
-            append q "SET key:$i [string length $val]\r\n$val\r\n"
-            puts -nonewline $fd2 $q
-            set q {}
-            append q "GET key:$i\r\n"
-            puts -nonewline $fd2 $q
-        }
-        flush $fd2
+        # Milliseconds variants
+        r set px somevalue
+        r pexpire px 1000000
+        r psetex py 2000000 somevalue
+        r set pz somevalue
+        r pexpireat pz [expr {([clock seconds]+3000)*1000}]
 
-        for {set i 0} {$i < 100000} {incr i} {
-            gets $fd2 line
-            gets $fd2 count
-            set count [string range $count 1 end]
-            set val [read $fd2 $count]
-            read $fd2 2
-        }
-        close $fd2
-        set _ 1
-    } {1}
+        # Reload and check
+        waitForBgrewriteaof r
+        # We need to wait two seconds to avoid false positives here, otherwise
+        # the DEBUG LOADAOF command may read a partial file.
+        # Another solution would be to set the fsync policy to no, since this
+        # prevents write() to be delayed by the completion of fsync().
+        after 2000
+        r debug loadaof
+        set ttl [r ttl x]
+        assert {$ttl > 900 && $ttl <= 1000}
+        set ttl [r ttl y]
+        assert {$ttl > 1900 && $ttl <= 2000}
+        set ttl [r ttl z]
+        assert {$ttl > 2900 && $ttl <= 3000}
+        set ttl [r ttl px]
+        assert {$ttl > 900 && $ttl <= 1000}
+        set ttl [r ttl py]
+        assert {$ttl > 1900 && $ttl <= 2000}
+        set ttl [r ttl pz]
+        assert {$ttl > 2900 && $ttl <= 3000}
+        r config set appendonly no
+    }
 
-    test {MUTLI / EXEC basics} {
-        r del mylist
-        r rpush mylist a
-        r rpush mylist b
-        r rpush mylist c
-        r multi
-        set v1 [r lrange mylist 0 -1]
-        set v2 [r ping]
-        set v3 [r exec]
-        list $v1 $v2 $v3
-    } {QUEUED QUEUED {{a b c} PONG}}
+    tags {protocol} {
+        test {PIPELINING stresser (also a regression for the old epoll bug)} {
+            set fd2 [socket $::host $::port]
+            fconfigure $fd2 -encoding binary -translation binary
+            puts -nonewline $fd2 "SELECT 9\r\n"
+            flush $fd2
+            gets $fd2
 
-    test {DISCARD} {
-        r del mylist
-        r rpush mylist a
-        r rpush mylist b
-        r rpush mylist c
-        r multi
-        set v1 [r del mylist]
-        set v2 [r discard]
-        set v3 [r lrange mylist 0 -1]
-        list $v1 $v2 $v3
-    } {QUEUED OK {a b c}}
+            for {set i 0} {$i < 100000} {incr i} {
+                set q {}
+                set val "0000${i}0000"
+                append q "SET key:$i $val\r\n"
+                puts -nonewline $fd2 $q
+                set q {}
+                append q "GET key:$i\r\n"
+                puts -nonewline $fd2 $q
+            }
+            flush $fd2
+
+            for {set i 0} {$i < 100000} {incr i} {
+                gets $fd2 line
+                gets $fd2 count
+                set count [string range $count 1 end]
+                set val [read $fd2 $count]
+                read $fd2 2
+            }
+            close $fd2
+            set _ 1
+        } {1}
+    }
 
     test {APPEND basics} {
         list [r append foo bar] [r get foo] \
@@ -167,42 +227,6 @@ start_server {} {
         set _ $err
     } {}
 
-    test {SUBSTR basics} {
-        set res {}
-        r set foo "Hello World"
-        lappend res [r substr foo 0 3]
-        lappend res [r substr foo 0 -1]
-        lappend res [r substr foo -4 -1]
-        lappend res [r substr foo 5 3]
-        lappend res [r substr foo 5 5000]
-        lappend res [r substr foo -5000 10000]
-        set _ $res
-    } {Hell {Hello World} orld {} { World} {Hello World}}
-
-    test {SUBSTR against integer encoded values} {
-        r set foo 123
-        r substr foo 0 -2
-    } {12}
-
-    test {SUBSTR fuzzing} {
-        set err {}
-        for {set i 0} {$i < 1000} {incr i} {
-            set bin [randstring 0 1024 binary]
-            set _start [set start [randomInt 1500]]
-            set _end [set end [randomInt 1500]]
-            if {$_start < 0} {set _start "end-[abs($_start)-1]"}
-            if {$_end < 0} {set _end "end-[abs($_end)-1]"}
-            set s1 [string range $bin $_start $_end]
-            r set bin $bin
-            set s2 [r substr bin $start $end]
-            if {$s1 != $s2} {
-                set err "String mismatch"
-                break
-            }
-        }
-        set _ $err
-    } {}
-
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
@@ -215,6 +239,7 @@ start_server {} {
     } {0 0}
 
     test {Perform a final SAVE to leave a clean DB on disk} {
+        waitForBgsave r
         r save
     } {OK}
 }
