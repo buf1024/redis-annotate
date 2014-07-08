@@ -464,8 +464,8 @@ configure:6073: $? = 0
 configure:6082: result: yes
 configure:6151: checking for _malloc_thread_cleanup
 configure:6151: gcc -o conftest -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops  -fvisibility=hidden  -D_GNU_SOURCE -D_REENTRANT  conftest.c  -lm -lpthread >&5
-/tmp/ccxnoFJF.o: In function `main':
-/home/heidong/git/redis/deps/jemalloc/conftest.c:101: undefined reference to `_malloc_thread_cleanup'
+/tmp/ccTbky1C.o: In function `main':
+/home/heidong/git/redis-annotate/deps/jemalloc/conftest.c:101: undefined reference to `_malloc_thread_cleanup'
 collect2: ld returned 1 exit status
 configure:6151: $? = 1
 configure: failed program was:
@@ -576,8 +576,8 @@ configure: failed program was:
 configure:6151: result: no
 configure:6165: checking for _pthread_mutex_init_calloc_cb
 configure:6165: gcc -o conftest -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops  -fvisibility=hidden  -D_GNU_SOURCE -D_REENTRANT  conftest.c  -lm -lpthread >&5
-/tmp/ccHpK9DJ.o: In function `main':
-/home/heidong/git/redis/deps/jemalloc/conftest.c:101: undefined reference to `_pthread_mutex_init_calloc_cb'
+/tmp/cclXmTcL.o: In function `main':
+/home/heidong/git/redis-annotate/deps/jemalloc/conftest.c:101: undefined reference to `_pthread_mutex_init_calloc_cb'
 collect2: ld returned 1 exit status
 configure:6165: $? = 1
 configure: failed program was:
@@ -1359,9 +1359,9 @@ configure:8211: result: DATADIR            : /usr/local/share
 configure:8213: result: MANDIR             : /usr/local/share/man
 configure:8215: result: 
 configure:8217: result: srcroot            : 
-configure:8219: result: abs_srcroot        : /home/heidong/git/redis/deps/jemalloc/
+configure:8219: result: abs_srcroot        : /home/heidong/git/redis-annotate/deps/jemalloc/
 configure:8221: result: objroot            : 
-configure:8223: result: abs_objroot        : /home/heidong/git/redis/deps/jemalloc/
+configure:8223: result: abs_objroot        : /home/heidong/git/redis-annotate/deps/jemalloc/
 configure:8225: result: 
 configure:8227: result: JEMALLOC_PREFIX    : je_
 configure:8229: result: JEMALLOC_PRIVATE_NAMESPACE
@@ -1518,8 +1518,8 @@ XSLROOT='/usr/share/sgml/docbook/xsl-stylesheets'
 XSLTPROC='/usr/bin/xsltproc'
 a='a'
 abi='elf'
-abs_objroot='/home/heidong/git/redis/deps/jemalloc/'
-abs_srcroot='/home/heidong/git/redis/deps/jemalloc/'
+abs_objroot='/home/heidong/git/redis-annotate/deps/jemalloc/'
+abs_srcroot='/home/heidong/git/redis-annotate/deps/jemalloc/'
 ac_ct_CC='gcc'
 bindir='${exec_prefix}/bin'
 build='x86_64-unknown-linux-gnu'

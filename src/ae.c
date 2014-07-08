@@ -158,6 +158,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
+    /*anno: 剩下的权限*/
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
         /* Update the max fd */
@@ -282,6 +283,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
+    /*anno: 或者在运行的过程中调了时间*/
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -297,6 +299,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long now_sec, now_ms;
         long long id;
 
+        /*anno: 什么条件下实现？ TODO*/
         if (te->id > maxId) {
             te = te->next;
             continue;

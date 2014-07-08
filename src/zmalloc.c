@@ -258,6 +258,7 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
 #include <sys/stat.h>
 #include <fcntl.h>
 
+/*anno: /proc/[%d]/的内容非常丰富，有空再整理整理, man proc可以看的介绍*/
 size_t zmalloc_get_rss(void) {
     int page = sysconf(_SC_PAGESIZE);
     size_t rss;

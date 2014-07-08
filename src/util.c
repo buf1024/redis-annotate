@@ -364,6 +364,7 @@ int d2string(char *buf, size_t len, double value) {
  * having run_id == A, and you reconnect and it has run_id == B, you can be
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, unsigned int len) {
+    /*anno: 使用系统的随机文件尽量使其随机 */
     FILE *fp = fopen("/dev/urandom","r");
     char *charset = "0123456789abcdef";
     unsigned int j;

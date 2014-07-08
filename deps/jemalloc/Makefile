@@ -19,8 +19,8 @@ DATADIR := $(DESTDIR)/usr/local/share
 MANDIR := $(DESTDIR)/usr/local/share/man
 srcroot := 
 objroot := 
-abs_srcroot := /home/heidong/git/redis/deps/jemalloc/
-abs_objroot := /home/heidong/git/redis/deps/jemalloc/
+abs_srcroot := /home/heidong/git/redis-annotate/deps/jemalloc/
+abs_objroot := /home/heidong/git/redis-annotate/deps/jemalloc/
 
 # Build parameters.
 CPPFLAGS :=  -D_GNU_SOURCE -D_REENTRANT -I$(srcroot)include -I$(objroot)include

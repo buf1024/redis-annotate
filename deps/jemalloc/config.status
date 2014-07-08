@@ -449,7 +449,7 @@ Copyright (C) 2010 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/home/heidong/git/redis/deps/jemalloc'
+ac_pwd='/home/heidong/git/redis-annotate/deps/jemalloc'
 srcdir='.'
 INSTALL='/usr/bin/install -c'
 test -n "$AWK" || AWK=awk
@@ -702,9 +702,9 @@ S["LIBDIR"]="/usr/local/lib"
 S["INCLUDEDIR"]="/usr/local/include"
 S["BINDIR"]="/usr/local/bin"
 S["PREFIX"]="/usr/local"
-S["abs_objroot"]="/home/heidong/git/redis/deps/jemalloc/"
+S["abs_objroot"]="/home/heidong/git/redis-annotate/deps/jemalloc/"
 S["objroot"]=""
-S["abs_srcroot"]="/home/heidong/git/redis/deps/jemalloc/"
+S["abs_srcroot"]="/home/heidong/git/redis-annotate/deps/jemalloc/"
 S["srcroot"]=""
 S["rev"]="1"
 S["target_alias"]=""

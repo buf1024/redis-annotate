@@ -572,30 +572,30 @@ typedef struct redisOpArray {
 
 struct redisServer {
     /* General */
-    char *configfile;           /* Absolute config file path, or NULL */
-    int hz;                     /* serverCron() calls frequency in hertz */
+    char *configfile;           /* anno: 空则用默认配置。Absolute config file path, or NULL */
+    int hz;                     /* anno: REDIS_DEFAULT_HZ, 默认10。serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
-    aeEventLoop *el;
+    aeEventLoop *el;            /* anno: poll 事件循环*/
     unsigned lruclock:REDIS_LRU_BITS; /* Clock for LRU eviction */
-    int shutdown_asap;          /* SHUTDOWN needed ASAP */
+    int shutdown_asap;          /* anno: 程序关闭。SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     char *requirepass;          /* Pass for AUTH command, or NULL */
-    char *pidfile;              /* PID file path */
-    int arch_bits;              /* 32 or 64 depending on sizeof(long) */
+    char *pidfile;              /* anno: 后台时pid文件的路径。PID file path */
+    int arch_bits;              /* anno: 32/64位机器。32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
-    char runid[REDIS_RUN_ID_SIZE+1];  /* ID always different at every exec. */
-    int sentinel_mode;          /* True if this instance is a Sentinel. */
+    char runid[REDIS_RUN_ID_SIZE+1];  /* anno: 实例ID，一般不会有重复。ID always different at every exec. */
+    int sentinel_mode;          /* anno: 哨兵模式，一般作为群集部署用。True if this instance is a Sentinel. */
     /* Networking */
-    int port;                   /* TCP listening port */
-    int tcp_backlog;            /* TCP listen() backlog */
+    int port;                   /* anno: 默认端口REDIS_SERVERPORT（6739）。TCP listening port */
+    int tcp_backlog;            /* anno: 默认采用nginx的值REDIS_TCP_BACKLOGTCP（511）。 listen() backlog */
     char *bindaddr[REDIS_BINDADDR_MAX]; /* Addresses we should bind to */
-    int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
+    int bindaddr_count;         /* anno: 绑定地址数。Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd[REDIS_BINDADDR_MAX]; /* TCP socket file descriptors */
-    int ipfd_count;             /* Used slots in ipfd[] */
+    int ipfd_count;             /* anno: ipfd个数。Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
@@ -603,12 +603,12 @@ struct redisServer {
     redisClient *current_client; /* Current client, only used on crash report */
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
-    int loading;                /* We are loading data from disk if true */
+    int loading;                /* anno: 是否从RDB/AOF中加载数据。We are loading data from disk if true */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
-    /* Fast pointers to often looked up command */
+    /* anno: 常见命令。Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
                         *rpopCommand;
     /* Fields used only for stats */
@@ -637,17 +637,17 @@ struct redisServer {
     long long ops_sec_samples[REDIS_OPS_SEC_SAMPLES];
     int ops_sec_idx;
     /* Configuration */
-    int verbosity;                  /* Loglevel in redis.conf */
-    int maxidletime;                /* Client timeout in seconds */
+    int verbosity;                  /* anno: 默认REDIS_NOTICE。Loglevel in redis.conf */
+    int maxidletime;                /* anno: 客户端超时时间。Client timeout in seconds */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
-    size_t client_max_querybuf_len; /* Limit for client query buffer length */
-    int dbnum;                      /* Total number of configured DBs */
+    size_t client_max_querybuf_len; /* anno: 默认1GB。Limit for client query buffer length */
+    int dbnum;                      /* anno: 默认个数是REDIS_DEFAULT_DBNUM（16）。Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
-    int aof_fsync;                  /* Kind of fsync() policy */
+    int aof_fsync;                  /* anno: 默认AOF_FSYNC_EVERYSEC。Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */

@@ -28,6 +28,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * zmalloc 对tcmalloc/jemalloc/libc malloc简单封装，使用方法和普遍的动态分配
+ * 内存方法一样。zmalloc在每个分配的动态内存中增加头部（如果是libc的malloc），
+ * 其含义为实际分配的内存大小。zmalloc动态分配的内存都是对齐的。
+ */
+
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 

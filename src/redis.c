@@ -51,6 +51,8 @@
 #include <sys/utsname.h>
 #include <locale.h>
 
+extern char* ascii_logo; // anno: 为了避免出错，extern 变量
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -1314,10 +1316,12 @@ void initServerConfig() {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
+    /*anno: syslog 默认配置*/
     server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
+    /*anno: aof 配置*/
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
     server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
@@ -1337,6 +1341,7 @@ void initServerConfig() {
     server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
     server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(REDIS_DEFAULT_AOF_FILENAME);
+    /*anno: 权鉴*/
     server.requirepass = NULL;
     server.rdb_compression = REDIS_DEFAULT_RDB_COMPRESSION;
     server.rdb_checksum = REDIS_DEFAULT_RDB_CHECKSUM;
@@ -1345,9 +1350,11 @@ void initServerConfig() {
     server.notify_keyspace_events = 0;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
+
     server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
+
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
@@ -1361,6 +1368,7 @@ void initServerConfig() {
     server.repl_timeout = REDIS_REPL_TIMEOUT;
     server.repl_min_slaves_to_write = REDIS_DEFAULT_MIN_SLAVES_TO_WRITE;
     server.repl_min_slaves_max_lag = REDIS_DEFAULT_MIN_SLAVES_MAX_LAG;
+    /*anno: lua脚本*/
     server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
@@ -1379,6 +1387,7 @@ void initServerConfig() {
     server.masterport = 6379;
     server.master = NULL;
     server.cached_master = NULL;
+
     server.repl_master_initial_offset = -1;
     server.repl_state = REDIS_REPL_NONE;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
@@ -3052,14 +3061,30 @@ int main(int argc, char **argv) {
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+    /*
+     * anno: LC_COLLATE
+                This variable determines the locale category for character
+                collation. It determines collation information for regular
+                expressions and sorting, including equivalence classes and
+                multi-character collating elements, in various utilities
+                and the strcoll() and strxfrm() functions. Additional
+                semantics of this variable, if any, are implementation-dependent.
+       对正则表达式和排序相关。
+     */
     setlocale(LC_COLLATE,"");
+    /*anno: zmalloc线程安全*/
     zmalloc_enable_thread_safeness();
+    /*anno: zmalloc 内存不足处理函数*/
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+
+    /*anno: 测试结构体大小*/
+    redisLog(REDIS_WARNING,"sizeof(struct redisServer)=%d\n",
+            sizeof(struct redisServer));
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel

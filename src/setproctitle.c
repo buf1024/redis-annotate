@@ -25,7 +25,12 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  * ==========================================================================
  */
+/*
+ * anno: 实现原理比较简单。
+ * argv 与 environ所指向的地方是一段连续的内存空间，只要在这个地方为所欲为即可。
+ */
 #ifndef _GNU_SOURCE
+/*anno: 为类使用program_invocation_name program_invocation_short_name */
 #define _GNU_SOURCE
 #endif
 
@@ -58,8 +63,8 @@ static struct {
 	 /* pointer to original nul character within base */
 	char *nul;
 
-	_Bool reset;
-	int error;
+	_Bool reset; // anno: 是否重置
+	int error;   // anno: 是否初始化出错
 } SPT;
 
 
@@ -104,6 +109,7 @@ static int spt_copyenv(char *oldenv[]) {
 	if (environ != oldenv)
 		return 0;
 
+	/*anno: argv和environ所指向的内容是内核分配的，清空后依然可以使用*/
 	if ((error = spt_clearenv()))
 		goto error;
 
@@ -131,6 +137,7 @@ static int spt_copyargs(int argc, char *argv[]) {
 	char *tmp;
 	int i;
 
+	// anno: 什么时候出现(i >= argc && argv[i])? TODO
 	for (i = 1; i < argc || (i >= argc && argv[i]); i++) {
 		if (!argv[i])
 			continue;
@@ -156,6 +163,8 @@ void spt_init(int argc, char *argv[]) {
 	nul = &base[strlen(base)];
 	end = nul + 1;
 
+	// anno: 什么时候出现(i >= argc && argv[i])? TODO
+	// anno: 找argv end的最大位置处
 	for (i = 0; i < argc || (i >= argc && argv[i]); i++) {
 		if (!argv[i] || argv[i] < end)
 			continue;
@@ -163,6 +172,8 @@ void spt_init(int argc, char *argv[]) {
 		end = argv[i] + strlen(argv[i]) + 1;
 	}
 
+	// anno: argv[x] 所指的地址和 environ[x]  所指的地址是一段连续的空间
+	// anno: 找出environ的最大位置处
 	for (i = 0; envp[i]; i++) {
 		if (envp[i] < end)
 			continue;
@@ -212,7 +223,9 @@ error:
 #ifndef SPT_MAXTITLE
 #define SPT_MAXTITLE 255
 #endif
-
+/*
+ * anno: 在SPT.end - SPT.base之间这段内存空间里面可以任意设置值，值就是显示的标题
+ */
 void setproctitle(const char *fmt, ...) {
 	char buf[SPT_MAXTITLE + 1]; /* use buffer in case argv[0] is passed */
 	va_list ap;
@@ -244,6 +257,7 @@ void setproctitle(const char *fmt, ...) {
 	memcpy(SPT.base, buf, len);
 	nul = &SPT.base[len];
 
+	// anno: 这段的逻辑是？ TODO
 	if (nul < SPT.nul) {
 		*SPT.nul = '.';
 	} else if (nul == SPT.nul && &nul[1] < SPT.end) {
