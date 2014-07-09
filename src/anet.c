@@ -242,9 +242,10 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 
     snprintf(portstr,sizeof(portstr),"%d",port);
     memset(&hints,0,sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_UNSPEC; // anno: IPV4/IPV6
     hints.ai_socktype = SOCK_STREAM;
 
+    /*anno: 通过IP和端口获取IPV4/IPV6地址结构*/
     if ((rv = getaddrinfo(addr,portstr,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;

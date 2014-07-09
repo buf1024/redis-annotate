@@ -43,18 +43,24 @@
 #define AF_LOCAL AF_UNIX
 #endif
 
+/*anno: 使用getaddrinfo获取地址结构，与IPV4/IPV6无关*/
 int anetTcpConnect(char *err, char *addr, int port);
 int anetTcpNonBlockConnect(char *err, char *addr, int port);
 int anetUnixConnect(char *err, char *path);
 int anetUnixNonBlockConnect(char *err, char *path);
+/*anno: 一直读到规定的字节数，或者没数据。*/
 int anetRead(int fd, char *buf, int count);
+
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len);
 int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len);
+
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog);
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog);
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog);
+
 int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port);
 int anetUnixAccept(char *err, int serversock);
+/*anno: 一直写到规定的字节数，或者没数据。*/
 int anetWrite(int fd, char *buf, int count);
 int anetNonBlock(char *err, int fd);
 int anetEnableTcpNoDelay(char *err, int fd);
