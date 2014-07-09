@@ -28,29 +28,32 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*anno: 双向链表实现*/
+
 #ifndef __ADLIST_H__
 #define __ADLIST_H__
 
 /* Node, List, and Iterator are the only data structures used currently. */
 
 typedef struct listNode {
-    struct listNode *prev;
-    struct listNode *next;
-    void *value;
+    struct listNode *prev; /*anno: pre域*/
+    struct listNode *next; /*anno: nxt域*/
+    void *value;/*anno: 值域*/
 } listNode;
 
 typedef struct listIter {
-    listNode *next;
-    int direction;
+    listNode *next; /*anno: 迭代过程中记录的nxt域*/
+    int direction; /*anno: 迭代方向*/
 } listIter;
 
 typedef struct list {
-    listNode *head;
-    listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
-    unsigned long len;
+    listNode *head; /*anno: 表头*/
+    listNode *tail; /*anno: 表尾*/
+    /*anno: 对值处理的一些函数指针*/
+    void *(*dup)(void *ptr); /*anno: 只是在duplicate一个链表时用到，插入新数据不会用到*/
+    void (*free)(void *ptr); /*anno: 删除节点时用到*/
+    int (*match)(void *ptr, void *key); /*anno: 根据key搜索时用到，如果不提供，则直接指针比较*/
+    unsigned long len; /*anno: 链表长度*/
 } list;
 
 /* Functions implemented as macros */
@@ -76,14 +79,18 @@ list *listAddNodeHead(list *list, void *value);
 list *listAddNodeTail(list *list, void *value);
 list *listInsertNode(list *list, listNode *old_node, void *value, int after);
 void listDelNode(list *list, listNode *node);
+/*anno: 迭代函数*/
 listIter *listGetIterator(list *list, int direction);
 listNode *listNext(listIter *iter);
 void listReleaseIterator(listIter *iter);
+
 list *listDup(list *orig);
 listNode *listSearchKey(list *list, void *key);
+/*anno: 负数表示从尾开始*/
 listNode *listIndex(list *list, long index);
 void listRewind(list *list, listIter *li);
 void listRewindTail(list *list, listIter *li);
+/*anno: 只是将tail域移到头，并没有真正的rotate*/
 void listRotate(list *list);
 
 /* Directions for iterators */

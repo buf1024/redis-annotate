@@ -28,6 +28,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * anno: select 接口的实现。
+ */
 
 #include <string.h>
 

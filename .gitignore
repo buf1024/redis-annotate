@@ -5,6 +5,13 @@ redis-check-aof
 redis-check-dump
 redis-cli
 redis-server
+src/redis-benchmark
+src/redis-cli
+src/redis-sentinel
+src/redis-server
+src/redis-check-aof
+src/redis-check-dump
+
 *~
 runtest*
 # Object files

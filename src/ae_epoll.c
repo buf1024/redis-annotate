@@ -28,6 +28,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * anno: epoll 接口的实现。
+ */
 
 #include <sys/epoll.h>
 

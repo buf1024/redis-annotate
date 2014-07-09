@@ -27,7 +27,12 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+/*
+ * anno: TCP简单的封装，同时支持IPV4和IPV6。
+ *       anetTcpNonBlockConnect如果加入多路复用中，
+ *       需检测getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen),
+ *       因为出错或成功，fd都是可读写的。
+ */
 #ifndef ANET_H
 #define ANET_H
 
@@ -50,24 +55,30 @@ int anetUnixConnect(char *err, char *path);
 int anetUnixNonBlockConnect(char *err, char *path);
 /*anno: 一直读到规定的字节数，或者没数据。*/
 int anetRead(int fd, char *buf, int count);
-
+/*anno: resolve host信息。*/
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len);
 int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len);
-
+/*anno: server信息，没有设置非阻塞信息。*/
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog);
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog);
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog);
-
+/*anno: 也是没有设置非阻塞信息。*/
 int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port);
 int anetUnixAccept(char *err, int serversock);
 /*anno: 一直写到规定的字节数，或者没数据。*/
 int anetWrite(int fd, char *buf, int count);
+/*anno: 设置TCP/IP选项。*/
 int anetNonBlock(char *err, int fd);
+/*anno: tcp noday, 单报文比较小时，放送该报文需要的头部数据比较多，
+ * 如果不设置该选项，系统会缓存到一定数量的报文再发送
+ */
 int anetEnableTcpNoDelay(char *err, int fd);
 int anetDisableTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
-int anetPeerToString(int fd, char *ip, size_t ip_len, int *port);
 int anetKeepAlive(char *err, int fd, int interval);
+/*anno: 获取对端的信息。*/
+int anetPeerToString(int fd, char *ip, size_t ip_len, int *port);
+/*anno: 获取fd的信息。*/
 int anetSockName(int fd, char *ip, size_t ip_len, int *port);
 
 #endif
